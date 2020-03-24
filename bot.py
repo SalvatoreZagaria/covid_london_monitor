@@ -6,10 +6,31 @@ from telegram.ext import Updater, CommandHandler
 from monitor import get_nav_element, explore_nav, pretty_print
 
 TOKEN = os.environ["COVID_LONDON_TOKEN"]
-monitor_threads = {}
+CURRENT_VALUE = "No results found."
 
 
 class MonitorThread(threading.Thread):
+    def __init__(self, interval=3600):
+        threading.Thread.__init__(self)
+        self.interval = interval
+
+    def run(self):
+        global CURRENT_VALUE
+        while True:
+            nav = get_nav_element()
+            if nav is None:
+                CURRENT_VALUE = "Resource not found on web page."
+            else:
+                res = explore_nav(nav)
+                CURRENT_VALUE = pretty_print(res)
+
+                if not CURRENT_VALUE:
+                    CURRENT_VALUE = "No results found."
+
+            time.sleep(self.interval)
+
+
+class SenderThread(threading.Thread):
     def __init__(self, updater, interval=60):
         threading.Thread.__init__(self)
         self.interval = interval
@@ -18,21 +39,12 @@ class MonitorThread(threading.Thread):
 
     def run(self):
         self.running = True
+        global CURRENT_VALUE
         while True:
             if not self.running:
                 break
 
-            nav = get_nav_element()
-            if nav is None:
-                msg = "Resource not found on web page."
-            else:
-                res = explore_nav(nav)
-                msg = pretty_print(res)
-
-                if not msg:
-                    msg = "No results found."
-
-            self.updater.message.reply_text(msg)
+            self.updater.message.reply_text(CURRENT_VALUE)
             time.sleep(self.interval)
 
     def stop(self):
@@ -42,50 +54,43 @@ class MonitorThread(threading.Thread):
         self.updater.message.reply_text(msg)
 
 
+MAIN_THREAD = MonitorThread()
+MAIN_THREAD.start()
+
+sender_threads = {}
+
+
 def get_one(update, context):
-    update.message.reply_text("Retrieving...")
-
-    nav = get_nav_element()
-    if nav is None:
-        msg = "Resource not found on web page."
-    else:
-        res = explore_nav(nav)
-        msg = pretty_print(res)
-
-        if not msg:
-            msg = "No results found."
-
-    update.message.reply_text(msg)
+    global CURRENT_VALUE
+    update.message.reply_text(CURRENT_VALUE)
 
 
 def start(update, context):
-    update.message.reply_text("Retrieving...")
-
     user_id = update.effective_user.id
-    monitor_thread = monitor_threads.get(user_id, None)
-    if monitor_thread is not None and monitor_thread.running:
+    sender_thread = sender_threads.get(user_id, None)
+    if sender_thread is not None and sender_thread.running:
         update.message.reply_text("Bot is running already.")
         return
-    monitor_thread = MonitorThread(update)
-    monitor_thread.start()
-    monitor_threads[user_id] = monitor_thread
+    sender_thread = SenderThread(update)
+    sender_thread.start()
+    sender_threads[user_id] = sender_thread
 
 
 def stop(update, context):
     user_id = update.effective_user.id
-    monitor_thread = monitor_threads.get(user_id, None)
-    if monitor_thread is None or (monitor_thread is not None and not monitor_thread.running):
+    sender_thread = sender_threads.get(user_id, None)
+    if sender_thread is None or (sender_thread is not None and not sender_thread.running):
         update.message.reply_text("Bot is stopped already.")
         return
-    monitor_thread.stop()
-    monitor_threads[user_id] = None
+    sender_thread.stop()
+    sender_threads[user_id] = None
 
     update.message.reply_text("Stopped.")
 
 
 def set_interval(update, context):
     user_id = update.effective_user.id
-    monitor_thread = monitor_threads.get(user_id, None)
+    sender_thread = sender_threads.get(user_id, None)
 
     args = context.args
     if len(args) != 1:
@@ -97,22 +102,22 @@ def set_interval(update, context):
             update.message.reply_text("The new interval must be a number higher than 0.")
 
         run = False
-        if monitor_thread is not None and monitor_thread.running:
-            monitor_thread.stop()
+        if sender_thread is not None and sender_thread.running:
+            sender_thread.stop()
             run = True
-        elif monitor_thread is None or (monitor_thread is not None and not monitor_thread.running):
+        elif sender_thread is None or (sender_thread is not None and not sender_thread.running):
             update.message.reply_text("Bot must be running.")
             return
 
-        monitor_thread = MonitorThread(update, interval=new_interval * 60)
+        sender_thread = SenderThread(update, interval=new_interval * 60)
 
         msg = "Interval updated to {}".format(new_interval)
         update.message.reply_text(msg)
         if run:
             update.message.reply_text("Retrieving...")
-            monitor_thread.start()
+            sender_thread.start()
 
-        monitor_threads[user_id] = monitor_thread
+        sender_threads[user_id] = sender_thread
     except ValueError:
         update.message.reply_text("Impossible to convert argument to integer.")
 
@@ -150,7 +155,6 @@ if __name__ == "__main__":
         print("Bot is running...")
     except:
         shutting_down = "Bot is shutting down."
-        for th in monitor_threads.values():
+        for th in sender_threads.values():
             th.send_message(shutting_down)
-            th.stop()
         print(shutting_down)
