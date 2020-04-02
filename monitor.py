@@ -26,7 +26,7 @@ def get_nav_element():
     nav = None
     while not nav and wait_thread.is_alive():
         try:
-            nav = browser.find_element_by_xpath("/html[1]/body[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/margin-container[1]/full-container[1]/div[13]/margin-container[1]/full-container[1]/div[1]/div[1]/nav[1]")
+            nav = browser.find_element_by_xpath("/html[1]/body[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/margin-container[1]/full-container[1]/div[12]/margin-container[1]/full-container[1]/div[1]/div[1]/nav[1]")
         except:
             time.sleep(0.5)
             continue
