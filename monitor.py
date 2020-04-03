@@ -31,6 +31,7 @@ def get_nav_element():
             time.sleep(0.5)
             continue
 
+    browser.delete_all_cookies()
     return nav
 
 
